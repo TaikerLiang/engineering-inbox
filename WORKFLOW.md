@@ -1,6 +1,6 @@
 # Core workflow specification
 
-Status: initial baseline; refine after real usage. MUST denotes required MVP behavior.
+Status: implemented baseline; refine after real usage. MUST denotes required MVP behavior. Items under [Unverified](#unverified) have not been checked against a real GitLab instance.
 
 ## Discovery
 
@@ -8,7 +8,7 @@ Scan only configured project allowlist. Relevant means current user is assignee,
 
 ## Personal state
 
-Independent of GitLab open/closed state: Pending, Reviewing, Done, Deferred. Start review moves Pending to Reviewing. Explicit Done completes the current review. Explicit follow-up sets a future date and optional reason, moves to Deferred, and completes this review. Publishing a comment or navigating next never completes a review. Pending/Reviewing work survives restart and carries over.
+Independent of GitLab open/closed state: Pending, Reviewing, Done, Deferred. Starting the review of an item moves it from Pending to Reviewing. Explicit Done completes the current review. Explicit follow-up sets a future date and optional reason, moves to Deferred, and completes this review. Publishing a comment or navigating next never completes a review. Pending/Reviewing work survives restart and carries over.
 
 ## Re-entry
 
@@ -42,6 +42,56 @@ Natural language may invoke deterministic CLI operations. Explicit user instruct
 
 Daily summary reports actual published replies, decisions, and identified action items. Staging actions, guided interview, parallel research and shortcuts are stretch.
 
-## Open decisions
+## Decisions
 
-Verify discovery coverage, mention parsing, description change attribution and closure evidence against supported GitLab versions. Specify exact event cursor and date boundary in implementation tests. A local scheduler cannot run while a workstation is off: provide manual recovery. Do not treat failed preparation as reviewed.
+Rules the implementation and tests follow. Each is exact; none depends on judgment.
+
+**Discovery**
+- Relevance is computed per issue from: `assignees`, `author`, `subscribed` (single-issue endpoint only), and the full note list (participant = I wrote a non-system note; mentioned = another user's description or non-system note contains `@me`).
+- Mention match: `@username`, case-insensitive, not inside inline code or fenced code, not part of a longer name, email or path. Group mentions and `@all` are not detected.
+- Incremental sync lists issues with `updated_after = watermark - 5 min` per project. `inbox sync --full` and `inbox init` list every open issue and re-fetch every tracked issue.
+- A change that does not bump `updated_at` (for example subscribing) is found only by `--full`.
+- The per-project watermark advances only when that project's pass had zero errors. An issue whose fetch failed keeps its stored data and state and shows `sync error`.
+
+**Events**
+- Event identity: mention = note ID; description change = the stored snapshot that first contained it. Identity and snapshot commit in one transaction, so repeated syncs consume an event once.
+- Mentions already present when an issue is first discovered are part of the first review, not later events.
+- Description attribution: authors of new `changed the description` system notes. All mine: no re-entry. Any other author: re-entry. No such note: re-entry flagged `attribution uncertain`.
+- Re-entry sets Done/Deferred to Pending and clears the active follow-up; its history stays in `review_records`. For Pending/Reviewing the event only adds a reason.
+- Remote closure of a Pending/Reviewing issue keeps it in the inbox with closer and time. Only open issues are newly discovered.
+
+**Dates**
+- Follow-up dates are local dates (`YYYY-MM-DD`) in the configured timezone and must be after today. Due when `follow_up_date <= today`. Due follow-ups are processed on every sync and on `start`, also when GitLab is unreachable.
+- A session belongs to the local date on which `start` ran. One session per local date.
+
+**Queue**
+- `start` freezes membership: every Pending/Reviewing issue at that moment. A later `start` the same day resumes it; after completion it reports completion and adds nothing.
+- An earlier day's unfinished session is closed as superseded; its unresolved items are members of the new queue by state.
+- `start` and `next` put the cursor on an item and move it Pending to Reviewing. `open ISSUE` does the same for a named member. Issues outside today's queue cannot be opened.
+- `done` and `follow-up` require Reviewing. `next` skips resolved items and wraps.
+
+**Snapshots**
+- A snapshot is description plus all notes (ID, author, body, system flag), stored only from a complete fetch and only when content changed.
+- Three pointers per issue: current (last fetch), observed (the snapshot the shown brief was built from), reviewed (set on `done`/`follow-up` to observed, or to current if no brief was shown). Sync never moves reviewed.
+- Delta = reviewed versus current: new = unknown ID, edited = same ID with different body, deleted = reviewed ID missing from the complete current fetch.
+
+**Briefs and sessions**
+- Preparation runs Claude Code headless with no tools and no MCP servers, on the full current issue plus the delta. New original comments are appended verbatim by the tool, not by the model.
+- No change since reviewed: a `No changes` notice, no model call.
+- A brief is fresh only for the same current snapshot and the same reviewed baseline; otherwise raw context is shown until `inbox prepare`.
+- One lock per issue session (preparation and `chat` exclude each other) and one global preparation lock.
+
+**Publishing**
+- `inbox comment ISSUE --publish` is the only write path. Without `--publish` the text is stored as a draft.
+- Before posting: reconcile earlier unknown outcomes, re-fetch the issue, verify project ID, IID and URL, and refuse if another user's note or the description changed since the observed snapshot (`--accept-stale` overrides after the user has read the change).
+- A 4xx response is a definite failure. A timeout, 5xx or unreadable response is ambiguous: the next attempt looks for my note with the same text; found means published and no repost, not found means failed and retry allowed.
+
+## Unverified
+
+Checked only against GitLab documentation and synthetic fixtures; confirm on the target GitLab version (see [docs/VALIDATION.md](docs/VALIDATION.md)):
+- `subscribed` is returned by the single-issue endpoint for the authenticated user.
+- Description edits produce a `changed the description` system note with the editor as author.
+- `updated_at` changes on new notes, note edits, description edits and closure.
+- `glab api` error text contains the HTTP status.
+
+A local scheduler cannot run while the workstation is off: `inbox prepare` is the manual recovery. A failed preparation is never treated as reviewed.

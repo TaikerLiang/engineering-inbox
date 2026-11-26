@@ -47,6 +47,8 @@ Deterministic tests:
 
 Agent quality: required brief sections, grounded clickable references, separation of fact/inference/recommendation, correct open questions and conflicts, verbatim new notes, concise English reply, no unauthorized writes, no-change fast path, explicit incomplete context. Use at least five synthetic or sanitized fixtures, manual semantic review initially.
 
+Test map (`tests/`): AC-01, AC-02 `test_discovery.py` · AC-03, AC-04 `test_state.py`, `test_publish.py` · AC-05 to AC-09, AC-15 `test_reentry.py` · AC-10, AC-11, AC-16 `test_queue.py` · AC-12 `test_delta.py` · AC-13 `test_agent.py` · AC-14 `test_publish.py`. Synthetic fixtures for agent review: `examples/gitlab.fixture.json`.
+
 ## Roadmap
 
 Day 1: workflow baseline and integration spikes (glab discovery and Claude resume).

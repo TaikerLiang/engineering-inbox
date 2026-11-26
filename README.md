@@ -19,14 +19,16 @@ Long PRDs and discussion threads make context recovery expensive. A personal rev
 
 The target is a 15–30 minute daily review, not closing every GitLab issue.
 
-## Design
+## Documentation
 
-- [Workflow specification](WORKFLOW.md): normative personal review behavior.
-- [Architecture](ARCHITECTURE.md): proposed local implementation.
+- [Usage](docs/USAGE.md): install, configure, daily flow, workspace layout, scheduler, smoke test.
+- [Workflow specification](WORKFLOW.md): normative review behavior and decisions.
+- [Architecture](ARCHITECTURE.md): modules, storage, integrations.
 - [MVP](MVP.md): scope, acceptance and roadmap.
+- [Validation](docs/VALIDATION.md): integration checks and the five-day usage record.
 
 ## Status
 
-Pre-implementation design. No installation instructions or working commands are claimed yet.
+MVP implemented and covered by deterministic tests on synthetic data (`uv run pytest`). Not yet run against a real GitLab instance or an authenticated Claude Code session, and the five-day usage validation has not been performed.
 
-Single-user, local-first, GitLab-first; Claude Code, glab and Herdr are intended integrations. No custom agent runtime or web console in the MVP. Never commit credentials, internal issue contents, session logs or workplace repository data to this public project.
+Single-user, local-first, GitLab-first; Claude Code, glab and Herdr are the integrations. No custom agent runtime or web console. Never commit credentials, internal issue contents, session logs or workplace repository data to this public project.
