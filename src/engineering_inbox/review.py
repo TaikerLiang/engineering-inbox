@@ -53,37 +53,52 @@ def queue(conn: sqlite3.Connection, session_id: int) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def start(conn: sqlite3.Connection, cfg: Config, now: datetime) -> tuple[sqlite3.Row, str]:
-    """Open today's queue. Returns (session, 'created' | 'resumed' | 'already_completed').
+def start(conn: sqlite3.Connection, cfg: Config, now: datetime, rebuild: bool = False) -> tuple[sqlite3.Row, str]:
+    """Open today's queue. Returns (session, 'created' | 'resumed' | 'already_completed' | 'rebuilt').
 
     Membership is every Pending/Reviewing issue at this moment, frozen for the day and
-    ordered by latest GitLab activity descending, then project ID and IID."""
+    ordered by latest GitLab activity descending, then project ID and IID.
+
+    `rebuild` re-derives today's membership: resolved items keep their place and outcome,
+    unresolved ones are replaced by every Pending/Reviewing issue not resolved today."""
     today = cfg.today(now)
     with tx(conn):
         process_due_follow_ups(conn, today, now)
         current = active_session(conn)
-        if current and current["session_date"] == today.isoformat():
+        if current and current["session_date"] == today.isoformat() and not rebuild:
             return current, "resumed"
-        if current:  # an earlier day's unfinished queue: its open items carry over by state
+        if current and current["session_date"] != today.isoformat():  # an earlier day's unfinished queue: its open items carry over by state
             conn.execute("UPDATE review_sessions SET status = 'superseded', completed_at = ? WHERE id = ?", (iso(now), current["id"]))
-        finished = session_for(conn, today)
-        if finished:
-            return finished, "already_completed"
+        existing = session_for(conn, today)
+        if existing and not rebuild:
+            return existing, "already_completed"
+        if existing:
+            session_id, how = existing["id"], "rebuilt"
+            conn.execute("DELETE FROM queue_items WHERE session_id = ? AND outcome IS NULL", (session_id,))
+            conn.execute("UPDATE review_sessions SET status = 'active', completed_at = NULL WHERE id = ?", (session_id,))
+        else:
+            how = "created"
+            session_id = conn.execute(
+                "INSERT INTO review_sessions(session_date, started_at, status) VALUES (?,?,'active')", (today.isoformat(), iso(now))
+            ).lastrowid
         members = conn.execute(
-            "SELECT id FROM tracked_issues WHERE state IN ('pending','reviewing') ORDER BY activity_at DESC, project_id, iid"
+            "SELECT id FROM tracked_issues WHERE state IN ('pending','reviewing')"
+            " AND id NOT IN (SELECT issue_id FROM queue_items WHERE session_id = ?)"
+            " ORDER BY activity_at DESC, project_id, iid",
+            (session_id,),
         ).fetchall()
-        session_id = conn.execute(
-            "INSERT INTO review_sessions(session_date, started_at, status) VALUES (?,?,'active')", (today.isoformat(), iso(now))
-        ).lastrowid
+        offset = conn.execute("SELECT COALESCE(MAX(position), 0) FROM queue_items WHERE session_id = ?", (session_id,)).fetchone()[0]
         conn.executemany(
             "INSERT INTO queue_items(session_id, issue_id, position) VALUES (?,?,?)",
-            [(session_id, m["id"], pos) for pos, m in enumerate(members, 1)],
+            [(session_id, m["id"], pos) for pos, m in enumerate(members, offset + 1)],
         )
-        if members:
-            _focus(conn, session_id, members[0]["id"])
+        ids = [m["id"] for m in members]
+        if ids:
+            cursor = existing["cursor_issue_id"] if existing else None
+            _focus(conn, session_id, cursor if cursor in ids else ids[0])
         else:
             _complete_if_zero(conn, session_id, now)
-        return conn.execute("SELECT * FROM review_sessions WHERE id = ?", (session_id,)).fetchone(), "created"
+        return conn.execute("SELECT * FROM review_sessions WHERE id = ?", (session_id,)).fetchone(), how
 
 
 def _focus(conn: sqlite3.Connection, session_id: int, issue_id: int) -> None:
@@ -132,15 +147,18 @@ def open_issue(conn: sqlite3.Connection, issue: sqlite3.Row) -> sqlite3.Row:
         return conn.execute("SELECT * FROM tracked_issues WHERE id = ?", (issue["id"],)).fetchone()
 
 
-def next_issue(conn: sqlite3.Connection) -> sqlite3.Row | None:
-    """Move to the next unresolved item after the cursor, wrapping. Never completes a review."""
+def next_issue(conn: sqlite3.Connection, back: bool = False) -> sqlite3.Row | None:
+    """Move to the next unresolved item after the cursor (before it when `back`), wrapping. Never completes a review."""
     with tx(conn):
         session = _require_session(conn)
         items = [i for i in queue(conn, session["id"]) if i["outcome"] is None]
         if not items:
             return None
         cursor = next((i["position"] for i in queue(conn, session["id"]) if i["id"] == session["cursor_issue_id"]), 0)
-        target = next((i for i in items if i["position"] > cursor), items[0])
+        if back:
+            target = next((i for i in reversed(items) if i["position"] < cursor), items[-1])
+        else:
+            target = next((i for i in items if i["position"] > cursor), items[0])
         _focus(conn, session["id"], target["id"])
         return conn.execute("SELECT * FROM tracked_issues WHERE id = ?", (target["id"],)).fetchone()
 

@@ -48,6 +48,7 @@ def test_next_navigates_without_completing(world):
     w.sync()
     session, _ = review.start(w.conn, w.cfg, MON)
     assert [review.next_issue(w.conn)["iid"] for _ in range(3)] == [2, 3, 1]  # wraps
+    assert [review.next_issue(w.conn, back=True)["iid"] for _ in range(3)] == [3, 2, 1]  # wraps backwards
     assert all(i["outcome"] is None for i in review.queue(w.conn, session["id"]))
     assert {w.row(f"g/a#{i}")["state"] for i in (1, 2, 3)} == {"reviewing"}
     review.done(w.conn, w.cfg, w.row("g/a#2"), MON)
@@ -90,3 +91,33 @@ def test_unfinished_items_carry_over_and_resort_next_day(world):
     assert how == "created" and order(w, tuesday) == [("g/a", 3), ("g/a", 4), ("g/a", 2)]
     assert w.conn.execute("SELECT status FROM review_sessions WHERE id = ?", (monday["id"],)).fetchone()[0] == "superseded"
     assert w.row("g/a#2")["state"] == "reviewing"
+
+
+def test_rebuild_adds_new_issues_and_keeps_resolved_items_and_cursor(world):
+    w = world({"g/a": [issue(1, updated_at="2026-11-01T03:00:00Z"), issue(2, updated_at="2026-11-01T02:00:00Z")]})
+    w.sync()
+    session, _ = review.start(w.conn, w.cfg, MON)
+    review.done(w.conn, w.cfg, w.row("g/a#1"), MON, decision="ok")
+    review.next_issue(w.conn)  # cursor on issue 2
+    w.data["projects"]["g/a"]["issues"].append(issue(3, updated_at="2026-11-02T02:00:00Z"))
+    w.sync(at(2, 3))
+    rebuilt, how = review.start(w.conn, w.cfg, at(2, 4), rebuild=True)
+    assert how == "rebuilt" and rebuilt["id"] == session["id"]
+    assert [(i["iid"], i["outcome"]) for i in review.queue(w.conn, rebuilt["id"])] == [(1, "done"), (3, None), (2, None)]
+    assert review.current(w.conn)["iid"] == 2 and w.row("g/a#3")["state"] == "pending"
+    assert w.conn.execute("SELECT COUNT(*) FROM review_records").fetchone()[0] == 1
+
+
+def test_rebuild_reopens_a_completed_session_and_creates_a_missing_one(world):
+    w = world({"g/a": [issue(1)]})
+    w.sync()
+    assert review.start(w.conn, w.cfg, MON, rebuild=True)[1] == "created"
+    review.done(w.conn, w.cfg, w.row("g/a#1"), MON)
+    w.data["projects"]["g/a"]["issues"].append(issue(2, updated_at="2026-11-02T02:00:00Z"))
+    w.sync(at(2, 3))
+    session, how = review.start(w.conn, w.cfg, at(2, 4), rebuild=True)
+    assert how == "rebuilt" and session["status"] == "active" and session["completed_at"] is None
+    assert order(w, session) == [("g/a", 1), ("g/a", 2)] and review.current(w.conn)["iid"] == 2
+    # Nothing new: the rebuilt queue is complete again.
+    review.done(w.conn, w.cfg, w.row("g/a#2"), at(2, 5))
+    assert review.start(w.conn, w.cfg, at(2, 6), rebuild=True)[0]["status"] == "completed"

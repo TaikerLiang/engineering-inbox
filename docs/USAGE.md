@@ -36,13 +36,14 @@ No credentials go in this file. Unknown keys are rejected.
 |---|---|
 | Prepare (scheduled, or by hand) | `inbox prepare` |
 | Start or resume today's queue | `inbox start` |
+| Pull issues discovered after start into today's queue | `inbox start --rebuild` |
 | Read the brief | `inbox brief ISSUE` or `glow "$(inbox brief ISSUE --path)"` |
 | Discuss | `inbox chat ISSUE` |
 | Save a reply draft | `inbox comment ISSUE --body-file reply.md` |
 | Post the reply | `inbox comment ISSUE --body-file reply.md --publish` |
 | Finish | `inbox done ISSUE --decision "..." --action "..."` |
 | Defer | `inbox follow-up ISSUE 2026-12-01 --reason "..."` |
-| Move on | `inbox next` |
+| Move on, or back | `inbox next`, `inbox prev` |
 | End of day | `inbox summary` |
 
 `ISSUE` is `group/project#IID` or the issue URL. `inbox status` shows counts, sync and preparation health. `inbox list --state deferred` shows scheduled follow-ups.
@@ -85,6 +86,7 @@ Missed run (machine off or asleep): run `inbox prepare`. `inbox start` also sync
 | `preparation failed` on a brief | Raw context is shown; run `inbox prepare ISSUE`. |
 | Publish outcome unknown | Run the same `comment --publish` again; it checks GitLab first and never posts twice. |
 | Subscribed to an issue but it is missing | `inbox sync --full`. |
+| Issue is tracked but `not in today's queue` | It waits for the next session by design; `inbox start --rebuild` adds it today. |
 
 ## Smoke test (synthetic data, no GitLab, no model)
 

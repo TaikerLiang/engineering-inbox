@@ -66,9 +66,10 @@ Rules the implementation and tests follow. Each is exact; none depends on judgme
 
 **Queue**
 - `start` freezes membership: every Pending/Reviewing issue at that moment. A later `start` the same day resumes it; after completion it reports completion and adds nothing.
+- `start --rebuild` is the explicit override of the freeze, for debugging and late additions: it syncs, keeps today's session and its resolved items (outcome, position, review records), and replaces the unresolved items with every Pending/Reviewing issue not resolved today, appended in the usual order. A completed session becomes active again if that adds items. The cursor stays on its item when that item is still unresolved. An issue resolved today that re-entered still waits for the next session.
 - An earlier day's unfinished session is closed as superseded; its unresolved items are members of the new queue by state.
-- `start` and `next` put the cursor on an item and move it Pending to Reviewing. `open ISSUE` does the same for a named member. Issues outside today's queue cannot be opened.
-- `done` and `follow-up` require Reviewing. `next` skips resolved items and wraps.
+- `start`, `next` and `prev` put the cursor on an item and move it Pending to Reviewing. `open ISSUE` does the same for a named member. Issues outside today's queue cannot be opened.
+- `done` and `follow-up` require Reviewing. `next` and `prev` skip resolved items and wrap.
 
 **Snapshots**
 - A snapshot is description plus all notes (ID, author, body, system flag), stored only from a complete fetch and only when content changed.
