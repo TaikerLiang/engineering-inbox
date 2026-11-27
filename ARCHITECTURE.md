@@ -50,7 +50,7 @@ Verified with Claude Code 2.1.332 (CLI mechanics only, no authenticated model ca
 
 ## CLI
 
-`inbox init | sync [--full] | prepare [ISSUE] | start | status | list | current | open ISSUE | next | done ISSUE | follow-up ISSUE DATE | brief ISSUE | chat ISSUE | comment ISSUE | summary | usage | schedule`
+`inbox init | sync [--full] | prepare [ISSUE] | start [--rebuild] | status | list | current | open ISSUE | next | prev | done ISSUE | follow-up ISSUE DATE | brief ISSUE | chat ISSUE | comment ISSUE | summary | usage | schedule`
 
 `ISSUE` is `group/project#IID` or the issue URL. Exit code 0 success, 1 rejected operation, 2 completed with incomplete sync or failed preparation.
 

@@ -142,12 +142,15 @@ def prepare(
 
 @app.command()
 @guarded
-def start(no_sync: bool = typer.Option(False, "--no-sync", help="Use stored data without syncing first.")):
+def start(
+    no_sync: bool = typer.Option(False, "--no-sync", help="Use stored data without syncing first."),
+    rebuild: bool = typer.Option(False, "--rebuild", help="Re-derive today's queue membership; resolved items are kept."),
+):
     """Start or resume today's fixed review queue."""
     c = Ctx()
-    if review.session_for(c.conn, c.cfg.today(c.now)) is None and not no_sync:  # first start of the day
+    if (rebuild or review.session_for(c.conn, c.cfg.today(c.now)) is None) and not no_sync:  # first start of the day, or a rebuild
         _print_sync(syncing.sync(c.conn, c.cfg, c.adapter, c.now))
-    session, how = review.start(c.conn, c.cfg, c.now)
+    session, how = review.start(c.conn, c.cfg, c.now, rebuild=rebuild)
     p = review.progress(c.conn, session)
     typer.echo(f"session {session['session_date']} {how.replace('_', ' ')}: {p['resolved']}/{p['total']} resolved")
     items = review.queue(c.conn, session["id"])
@@ -243,6 +246,18 @@ def next_():
     """Move to the next unresolved item. Does not mark anything done."""
     c = Ctx()
     row = review.next_issue(c.conn)
+    if row is None:
+        typer.echo("No unresolved items in today's queue.")
+        return
+    _show(c, row)
+
+
+@app.command()
+@guarded
+def prev():
+    """Move to the previous unresolved item. Does not mark anything done."""
+    c = Ctx()
+    row = review.next_issue(c.conn, back=True)
     if row is None:
         typer.echo("No unresolved items in today's queue.")
         return
